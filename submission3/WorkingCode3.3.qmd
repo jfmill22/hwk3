@@ -1,0 +1,304 @@
+---
+title: Homework 3 submission 3
+format:
+  pdf:
+   echo: false
+   warning: false
+   message: false
+---
+
+
+
+```{r}
+#| scrolled: true
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(broom)
+library(rddensity)
+library(rdrobust)
+library(stargazer)
+# Load data
+data <- read_csv("../data/final-data3.csv")
+```
+
+# Question 1: Table of Summary statistics 
+Provide a table of summary statistics showing the mean star rating, mean number of enrollments, and mean market share for plans by year. The variables (star rating, enrollments, market share) should be listed as columns and years (2010-2015) as rows. Provide an additional column reflecting the total number of plans underlying your summary statistics in each year.
+
+```{r}
+table <- data %>%
+    mutate(market_share = (avg_enrollment / avg_eligibles)) %>%
+    group_by(year) %>%
+    summarize(
+        "Mean Star Rating" = mean(Star_Rating, na.rm = TRUE),
+        "Mean Enrollment" = mean(avg_enrollment, na.rm = TRUE),
+        "Mean Market Share" = mean(market_share, na.rm = TRUE),
+        "Plan Count" = n()
+    )%>%
+
+mutate(across(starts_with("mean"), \(x) round(x, 2)))
+
+table
+```
+
+# Question 2: Table of Summary statistics for plans without a star rating
+Repeat part 1 but focusing only on plans without a star rating. Naturally, in this case, you need only present the mean enrollments and market share, not the mean star rating, along with a column showing the count of all such plans in each year.
+
+```{r}
+no_star_plans <- data %>%
+    filter(is.na(Star_Rating))
+table_no_stars <- no_star_plans %>%
+    mutate(market_share = (avg_enrollment / avg_eligibles) ) %>%
+    group_by(year) %>%
+    summarize(
+        "Mean enrollment" = mean(avg_enrollment, na.rm = TRUE),
+        "Mean Market Share" = mean(market_share, na.rm = TRUE),
+        "Plan COunt" = n()
+    ) %>%
+mutate(across(starts_with("mean"), \(x) round(x, 2)))
+
+table_no_stars
+```
+
+# Question 3: Bar graphs showing the distribution of star ratings in 2010, 2012, and 2015
+Provide bar graphs showing the distribution of star ratings in 2010, 2012, and 2015. How has this distribution changed over time?
+
+```{r}
+# Bar graph for 2010
+star_ratings <- data %>%
+    filter(!is.na(Star_Rating))
+
+ggplot(filter(star_ratings, year == 2010), aes(x = Star_Rating)) +
+    geom_bar() +
+    labs(
+        title = "Bar plot of Star Ratings in 2010",
+        x = "Star Rating",
+        y = "Count") +
+    theme_minimal()
+
+# Bar graph for 2012
+ggplot(filter(star_ratings, year == 2012), aes(x = Star_Rating)) +
+    geom_bar() +
+    labs(
+        title = "Bar plot of Star Ratings in 2012",
+        x = "Star Rating",
+        y = "Count") +
+    theme_minimal()
+
+# Bar graph for 2015
+ggplot(filter(star_ratings, year == 2015), aes(x = Star_Rating)) +
+    geom_bar() +
+    labs(
+        title = "Bar plot of Star Ratings in 2015",
+        x = "Star Rating",
+        y = "Count") +
+    theme_minimal()
+```
+
+ Over time there are s,ignificantly fewer plans, there goes from almost 49,000 plans in 2010 to less than 5,000 plans by 2015. Not only does the number of plans dereas, but the quality of plans increases. In 2010 a majority of plans had a star rating of 2.5, in 2012 most were 3 star, and by 2015 the largest category was 4 stars. 
+
+# Question 4: Table showing regression results from OLS of market share on star ratings for 2010-2015
+Provide a table showing the regression resuls from an ordinary least squares regression of market share on star ratings, again for each year from 2010 through 2015. In this table, the rows should reflect your coefficient estimates and the columns should reflect different estimates for each year. In your regression specifications, please treat star ratings of 2.5 or below as your excluded category, and include indicator variables for star ratings of 3, 3.5, 4, and 4.5 or above.
+
+```{r}
+data <- data %>%
+    filter(!is.na(Star_Rating))%>%
+    mutate(
+        mkt_share = avg_enrollment / avg_enrolled,
+        star_cat = case_when(
+            Star_Rating <= 2.5 ~ "2.5 or below",
+            Star_Rating <= 3 ~ "3",
+            Star_Rating <= 3.5 ~ "3.5",
+            Star_Rating <= 4 ~ "4",
+            Star_Rating <= 4.5 ~ "4.5 or above"
+        ),
+        star_cat = factor(star_cat, levels = c("2.5 or below", "3", "3.5", "4", "4.5 or above"))
+    )
+models <- lapply(2010:2015, function(yr) {
+    lm(mkt_share ~ star_cat, data = data %>% filter(year == yr))
+})
+names(models) <- as.character(2010:2015)
+
+
+stargazer(models, 
+          type = "text", 
+          column.labels = as.character(2010:2015),
+          dep.var.labels = "Market Share",
+          title = "Market Share vs. Star Rating (2010-2015)",
+          omit.stat = c("f", "ser"))
+```
+
+```{r}
+#| scrolled: true
+# Load 2010 data only
+data2010 <- read_csv("../data/data-2010.csv")
+```
+
+# Question 5: Calculate the running variable underlying the star rating with a table showing the number of rounded plans 3-5 star
+Calculate the running variable underlying the star rating. Provide a table showing the number of plans that are rounded up into a 3-star, 3.5-star, 4-star, 4.5-star, and 5-star rating.
+
+```{r}
+data_cleaned <- data2010 %>%
+  mutate(raw_score = rowMeans(select(., breastcancer_screen:ttyt_available), na.rm = TRUE))
+
+rounded_up_table <- data_cleaned %>%
+  filter(Star_Rating > raw_score) %>%
+  filter(Star_Rating %in% c(3, 3.5, 4, 4.5, 5)) %>%
+  group_by("Star Rating" = Star_Rating) %>%
+  summarise("Rounded Up Plan Count" = n())
+
+rounded_up_table
+```
+
+# Question 6: Using the RD estimator with a bandwith of 0.125 show an estimate of the effect of 3 star versus 2.5 star on enrollments
+Using the RD estimator with a bandwidth of 0.125, provide an estimate of the effect of receiving a 3-star versus a 2.5 star rating on enrollments. Repeat the exercise to estimate the effects at 3.5 stars, and summarize your results in a table.
+
+```{r}
+data_cleaned <- data2010 %>%
+  mutate(mkt_share = avg_enrollment / avg_enrolled) %>%
+  mutate(raw_score = rowMeans(select(., breastcancer_screen:ttyt_available), na.rm = TRUE))
+
+rd_result3 <- rdrobust(y = data_cleaned$mkt_share,
+                      x = data_cleaned$raw_score,
+                      c = 2.75,
+                      h = 0.125)
+
+summary(rd_result3)
+```
+
+### estimate the effect at 3.5 stars
+
+```{r}
+rd_result35 <- rdrobust(y = data_cleaned$mkt_share,
+                      x = data_cleaned$raw_score,
+                      c = 3.25,
+                      h = 0.125)
+
+summary(rd_result35)
+```
+
+# Question 7: Repeat question 6 with alternative bandwidths
+Repeat your results for bandwidhts of 0.1, 0.12, 0.13, 0.14, and 0.15 (again for 3 and 3.5 stars). Show all of the results in a graph. How sensitive are your findings to the choice of bandwidth?
+
+```{r}
+data_cleaned <- data_cleaned %>%
+  filter(!is.na(mkt_share), !is.na(raw_score))
+
+bandwidths <- c(0.1, 0.12, 0.13, 0.14, 0.15)
+thresholds <- c("3.0" = 2.75, "3.5" = 3.25)
+
+results_list <- list()
+
+for (thresh_name in names(thresholds)) {
+  thresh_val <- thresholds[[thresh_name]]
+  
+  for (bw in bandwidths) {
+
+    rd_fit <- tryCatch({
+      rdrobust(y = data_cleaned$mkt_share, 
+               x = data_cleaned$raw_score, 
+               c = thresh_val, 
+               h = bw)
+    }, error = function(e) return(NULL))
+    
+    if (!is.null(rd_fit)) {
+      results_list[[paste(thresh_name, bw)]] <- data.frame(
+        Star_Threshold = thresh_name,
+        Bandwidth = bw,
+        Estimate = rd_fit$coef[1],    
+        Lower_CI = rd_fit$ci[1,1],    
+        Upper_CI = rd_fit$ci[1,2]      
+      )
+    }
+  }
+}
+
+sensitivity_df <- bind_rows(results_list)
+
+ggplot(sensitivity_df, aes(x = Bandwidth, y = Estimate, group = Star_Threshold, color = Star_Threshold)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.002) +
+  theme_minimal() +
+  labs(title = "Bandwidth Sensitivity Analysis",
+       x = "Bandwidth (h)",
+       y = "Jump in Market Share",
+       color = "Star Threshold")
+```
+
+The direction of the effect is consistent across all bandwidth choices. For the 3-star threshold it is consistently positive and for the 3.5-star it is negative. As the bandwidth increases from 0.1 to 0.15 for estimated effect for the 3-star plans slightly decreases, with the most significant different being between 0.1 and 0.12. For the 3.5-star plans the decrease becomes more pronounced. Additionally, the 3.5 star estimates have a much wider confidence interval.
+
+# Question 8: Distribution of the running variable before and after the releant threshold values
+Examine (graphically) whether contracts appear to manipulate the running variable. In other words, look at the distribution of the running variable before and after the relevent threshold values. What do you find?
+
+```{r}
+# Density test and plot for 2.75 cutoff
+dens_test_275 <- rddensity(X = data_cleaned$raw_score, c = 2.75)
+dens_plot_275 <- rdplotdensity(rdd = dens_test_275, 
+                               X = data_cleaned$raw_score,   
+                               type = "both") 
+
+# Density test and plot for 3.25 cutoff
+dens_test_325 <- rddensity(X = data_cleaned$raw_score, c = 3.25)
+dens_plot_325 <- rdplotdensity(rdd = dens_test_325, 
+                               X = data_cleaned$raw_score,  
+                               type = "both")
+
+```
+
+For the 3-star plans there is a bit more of a jump at the cutoff than for the 3.5-star plans. It appears as though there is a decrease after the 2.75 threshold that does not exist at the 3.25 threshold.
+
+# Question 9: Examine if plans just above the threshold values have different characteristics than contracts just below the threshold values using HMO and Part D status
+Examine whether plans just above the threshold values have different characteristics than contracts just below the threshold values. Use HMO and Part D status as your plan characteristics.
+
+```{r}
+bw <- 0.125
+cutoffs <- c(`3.0 stars` = 2.75, `3.5 stars` = 3.25)
+
+data_cleaned <- data_cleaned %>%
+  mutate(
+    HMO = as.integer(grepl("HMO", plan_type)),
+    PartD = as.integer(partd == "Yes")
+  )
+
+balance_simple <- purrr::imap_dfr(cutoffs, function(cut, label){
+
+  data_cleaned <- data_cleaned %>%
+    filter(is.finite(raw_score),
+           raw_score >= cut - bw,
+           raw_score <= cut + bw) %>%
+    mutate(side = if_else(raw_score >= cut, "Above", "Below"))
+
+  if(nrow(data_cleaned) == 0) return(NULL)
+
+  data_cleaned %>%
+    group_by(side) %>%
+    summarize(
+      HMO = mean(HMO, na.rm = TRUE),
+      PartD = mean(PartD, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    tidyr::pivot_longer(-side, names_to = "Characteristic") %>%
+    tidyr::pivot_wider(names_from = side, values_from = value) %>%
+    mutate(
+      Cutoff = label,
+      Diff = Above - Below
+    )
+})
+
+ggplot(balance_simple, aes(x = Diff, y = Characteristic, color = Cutoff)) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_point(size = 2) +
+  labs(
+    title = "Jumps in HMO and Part D status at Cutoffs",
+    x = "RD estimate",
+    y = ""
+  ) +
+  theme_minimal()
+```
+
+# Question 10: Summary of findings for 5-9
+Summarize your findings from 5-9. What is the effect of increasing a star rating on enrollments? Briefly explain your results.
+
+The star rating has a statistically significant impact on enrollments. The regression discontinuity analysis shows an increase in market share from 3-star to 3.5-star thresholds, suggesting that there is a difference from the consumer side between these two plans. The effects are consistent across the different bandwidths tested. The jumps in enrollment at the thresholds indicate that an increase in star rating is associated with an increase in enrollments.
+
